@@ -22,7 +22,6 @@ public class CodeInterpreterPlugin(ILogger<CodeInterpreterPlugin> logger)
             options.LimitRecursion(100);
         });
         
-        // Add console.log
         engine.SetValue("console", new {
             log = new Action<object>(obj => output.AppendLine(obj?.ToString()))
         });

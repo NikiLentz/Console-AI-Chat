@@ -11,24 +11,23 @@ namespace ConsoleAIChat.Services;
 
 public class VectorService
 {
-    private readonly IConfiguration _configuration;
+    private IConfiguration _configuration;
     private readonly ILogger<VectorService> _logger;
-    private readonly String apiKey = _configuration["OpenAI:ApiKey"] ?? 
-        throw new ArgumentNullException("OpenAI:ApiKey configuration is missing");
     private readonly  IEmbeddingGenerator<string,Embedding<float>> _embeddingGenerator;
-    private readonly QdrantClient _qdrantClient;
     
     public VectorService(IConfiguration configuration, ILogger<VectorService> logger)
     {
         _configuration = configuration;
         _logger = logger;
-        
+        var apiKey = _configuration["OpenAI:ApiKey"] ?? 
+                     throw new ArgumentNullException("OpenAI API Key not set");
+
         IKernelBuilder kernelBuilder = Kernel.CreateBuilder();
         
         #pragma warning disable SKEXP0010
         kernelBuilder.AddOpenAIEmbeddingGenerator(
             modelId: "text-embedding-3-small",          
-            apiKey: apiKey,
+            apiKey: apiKey ,
             dimensions: 1536             
         );
         var kernel = kernelBuilder.Build();
@@ -51,8 +50,9 @@ public class VectorService
         
     }
     
-    public async SparseVector GenerateSparseVectorAsync(string text)
+    public async Task<SparseVector> GenerateSparseVectorAsync(string text)
     {
+        throw new  NotImplementedException();
     }
     
     public async Task IngestTextAsync(string text, CancellationToken cancellationToken = default)
