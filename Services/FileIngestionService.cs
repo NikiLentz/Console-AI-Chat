@@ -1,22 +1,32 @@
 using System.Text;
+using ConsoleAIChat.Services.Interfaces;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Presentation;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using UglyToad.PdfPig;
+using UglyToad.PdfPig.Content;
+using UglyToad.PdfPig.DocumentLayoutAnalysis.WordExtractor;
 
 namespace ConsoleAIChat.Services;
 
-public class FileIngestionService(IConfiguration configuration, ILogger<FileIngestionService> logger)
+public class FileIngestionService(IConfiguration configuration, ILogger<FileIngestionService> logger, IVectorService vectorService):IFileIngestionService
 {
     private readonly string folderPath = configuration["FileIngestion:FolderPath"] ?? 
         throw new ArgumentNullException("FileIngestion:FolderPath configuration is missing");
+    
+    
 
     public async Task IngestFilesAsync(CancellationToken cancellationToken = default)
     {
+        var maxChunkSize = int.Parse(configuration["FileIngestion:MaxChunkSize"] ?? "1000");
+        var overlapSize = int.Parse(configuration["FileIngestion:OverlapSize"] ?? "200");
         var filePaths = Directory.GetFiles(folderPath);
         foreach (var path in filePaths)
         {
+            var chunks = new List<string>();
+            StringBuilder sb = new StringBuilder();
             var file = new FileInfo(path);
             if(file.Extension == ".pptx" || file.Extension == ".pptx")
             {
@@ -26,10 +36,32 @@ public class FileIngestionService(IConfiguration configuration, ILogger<FileInge
                 for (var i = 0;  i < numberOfSlides; i++)
                 {
                     var text = GetSlideIdAndText(path, i);
-                    Console.WriteLine($"Side #{i + 1} contains: {text}");
+                    sb.AppendLine(text);
+                    sb.AppendLine("\n");
+                }
+            } 
+            else if (file.Extension == ".pdf")
+            {
+                sb.Clear();
+                var fileBytes = await File.ReadAllBytesAsync(path, cancellationToken);
+                using var pdf = PdfDocument.Open(fileBytes);
+                foreach (var page in pdf.GetPages())
+                {
+                    IEnumerable<Word> words = page.GetWords(NearestNeighbourWordExtractor.Instance);
+                    foreach (Word word in words)
+                    {
+                        sb.Append(word.Text + " ");
+                    } 
+                    sb.AppendLine("\n");
                 }
                 
+                chunks = CreateChunksWithOverlap(sb.ToString(), maxChunkSize, overlapSize);
             }
+            else
+            {
+                logger.LogWarning("Unsupported file type: {FileExtension}", file.Extension);
+            }
+            await vectorService.IngestTextAsync(chunks.ToArray(), file.Name, cancellationToken);
             
         }
     }
@@ -85,6 +117,27 @@ public class FileIngestionService(IConfiguration configuration, ILogger<FileInge
         }
         return paragraphText.ToString();
     }
-
+    
+    private List<String> CreateChunksWithOverlap(string text, int maxChunkSize, int overlapSize)
+    {
+        var chunks = new List<string>();
+        var words = text.Split(new[] { ' ', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+    
+        if (words.Length == 0) return chunks;
+    
+        int position = 0;
+        while (position < words.Length)
+        {
+            var chunkWords = words.Skip(position).Take(maxChunkSize).ToArray();
+            chunks.Add(string.Join(" ", chunkWords));
+            position += maxChunkSize - overlapSize;
+            if (overlapSize >= maxChunkSize)
+            {
+                position = words.Length;
+            }
+        }
+    
+        return chunks;
+    }
     
 }
