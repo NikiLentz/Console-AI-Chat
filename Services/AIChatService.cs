@@ -5,6 +5,7 @@ using ConsoleAIChat.Services.Helper;
 using ConsoleAIChat.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
@@ -16,38 +17,39 @@ namespace ConsoleAIChat.Services;
 public class AIChatService :IAIChatService
 {
     private readonly IChatCompletionService _reasoningChatCompletionService;
-    private readonly IChatCompletionService _summarizationService;
-    private readonly IChatCompletionService _routerService;
-    private readonly AppDbContext _context;
+    private readonly IDbContextFactory<AppDbContext> _contextFactory;
     private readonly Kernel _kernel;
     private readonly ILogger<AIChatService> _logger;
     private readonly GptEncoding _encoding = GptEncoding.GetEncodingForModel("gpt-4o");
+    private readonly TokenCountBasedReducer _reducer;
+    private readonly string _systemPrompt;
 
     private readonly OpenAIPromptExecutionSettings _openAIPromptExecutionSettings =
         new() { ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions};
 
-    public AIChatService(IDbContextFactory<AppDbContext> contextFactory, IConfiguration configuration, ILogger<AIChatService> logger, ILogger<SQLDatabasePlugin> dbLogger, ILogger<CodeInterpreterPlugin> codeLogger)
+    public AIChatService(IDbContextFactory<AppDbContext> contextFactory, 
+        IConfiguration configuration, 
+        ILogger<AIChatService> logger,
+        IVectorService vectorService,
+        TokenCountBasedReducer reducer,
+        [FromKeyedServices("ToolKernel")] Kernel pluginKernel)
     {
-        var builder = Kernel.CreateBuilder()
-            .AddOpenAIChatCompletion("gpt-4o", configuration["OpenAI:ApiKey"]);
-        builder.Plugins.AddFromObject(new SQLDatabasePlugin(contextFactory, dbLogger));
-        builder.Plugins.AddFromObject(new CodeInterpreterPlugin(codeLogger));
-        _kernel = builder.Build();
-        _reasoningChatCompletionService = _kernel.GetRequiredService<IChatCompletionService>();
-        _context = contextFactory.CreateDbContext();
+        _kernel = pluginKernel;
+        _reasoningChatCompletionService = _kernel.GetRequiredService<IChatCompletionService>() 
+                                         ?? throw new ArgumentNullException("Reasoning Chat Completion Service not found in Plugin Kernel");
+        _contextFactory = contextFactory;
         _logger = logger;
-        _summarizationService = Kernel.CreateBuilder()
-            .AddOpenAIChatCompletion("gpt-4.1-nano", configuration["OpenAI:ApiKey"])
-            .Build()
-            .GetRequiredService<IChatCompletionService>();
-       
+        _reducer = reducer;
+        _systemPrompt = configuration["AI:StarterPrompt"] ?? throw new ArgumentNullException("System prompt not configured");
     }
 
     public async IAsyncEnumerable<string> StreamChatCompletionAsync(string userMessage, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
-        var reducer = new TokenCountBasedReducer(_summarizationService);
+        var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+        var history = new ChatHistory();
+        
         _logger.LogInformation("Received user message: {UserMessage}", userMessage);
-        var history = await _context.ChatMessages.ToListAsync(cancellationToken)
+        history = await context.ChatMessages.ToListAsync(cancellationToken)
             .ContinueWith(t => 
             {
                 var chatHistory = new ChatHistory();
@@ -66,7 +68,9 @@ public class AIChatService :IAIChatService
         history.AddUserMessage(userMessage);
         _logger.LogInformation("Current chat history token count before reduction: {TokenCount}", history.Sum(m => _encoding.Encode(m.Content ?? "").Count));
         
-        history = await reducer.ReduceAsync(history, cancellationToken);
+        history = await _reducer.ReduceAsync(history, cancellationToken);
+        
+        history.AddSystemMessage(_systemPrompt);
         _logger.LogInformation("Chat history token count after reduction: {TokenCount}", history.Sum(m => _encoding.Encode(m.Content ?? "").Count));
         var fullAssistantMessage = string.Empty;
         await foreach (var update in StreamReasoningCompletionInternalAsync(history, cancellationToken))
@@ -77,19 +81,19 @@ public class AIChatService :IAIChatService
                 yield return update;
             }
         }
-        _context.ChatMessages.Add(new ChatMessage
+        context.ChatMessages.Add(new ChatMessage
         {
             Id = Guid.NewGuid(),
             Role = "user",
             Content = userMessage
         });
-        _context.ChatMessages.Add(new ChatMessage
+        context.ChatMessages.Add(new ChatMessage
         {
             Id = Guid.NewGuid(),
             Role = "assistant",
             Content = fullAssistantMessage
         });
-        await _context.SaveChangesAsync(cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
     }
     
     private async IAsyncEnumerable<string> StreamReasoningCompletionInternalAsync(ChatHistory history, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)

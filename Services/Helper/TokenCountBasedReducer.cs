@@ -1,17 +1,22 @@
 using System.Text;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
 using SharpToken;
 
 namespace ConsoleAIChat.Services.Helper;
 
 public class TokenCountBasedReducer(
-    IChatCompletionService summarizationService,
+    [FromKeyedServices("BaseKernel")] Kernel kernel,
     int maxTokensSummaryModel = 100000,
-    int maxTokens = 100000,
+    int maxTokens = 10000,
     string summarizationPrompt =
         "Summarize the following conversation between a user and an AI assistant. Focus on key points, decisions, and action items. Be concise but comprehensive. Avoid including trivial details.") 
 {
     private readonly GptEncoding _encoding = GptEncoding.GetEncodingForModel("gpt-4o");
+    private readonly IChatCompletionService _summarizationService = 
+        kernel.GetRequiredService<IChatCompletionService>() 
+        ?? throw new ArgumentNullException("Summarization Chat Completion Service not found in Kernel");
     
     
 
@@ -84,7 +89,7 @@ public class TokenCountBasedReducer(
         summaryHistory.AddRange(messagesToSummarize);
         summaryHistory.AddSystemMessage(summaryPromptBuilder.ToString());
 
-        var summaryResponse = await summarizationService.GetChatMessageContentAsync(summaryHistory, cancellationToken: cancellationToken);
+        var summaryResponse = await _summarizationService.GetChatMessageContentAsync(summaryHistory, cancellationToken: cancellationToken);
 
         return (summaryResponse.Content ?? "").Trim();
     }
