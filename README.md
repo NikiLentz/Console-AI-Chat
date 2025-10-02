@@ -7,7 +7,9 @@ This includes a simple docker-compose file to start a postgres and a qdrant data
 
 Current Features:
 * Chat Completion in the Console with multiple Tools for the AI to access
+* File Ingestion into a Qdrant Vector DB
 
 Current Tools/Plugins
 * Plugin for the AI to access the postgres DB
 * Plugin for the AI to safely execute javascript code.
+* Plugin for the AI to access a Qdrant Vector DB
