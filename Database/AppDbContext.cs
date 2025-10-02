@@ -11,4 +11,5 @@ public class AppDbContext:DbContext
     
     
     public DbSet<ChatMessage> ChatMessages { get; set; }
+    public DbSet<VectorDatabaseFile> VectorDatabaseFiles { get; set; }
 }

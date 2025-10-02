@@ -6,6 +6,7 @@ using ConsoleAIChat.Services;
 using ConsoleAIChat.Services.Helper;
 using ConsoleAIChat.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -42,12 +43,16 @@ try
     services.AddKeyedTransient<Kernel>("ToolKernel", (sp, key) =>
     {
         var builder = Kernel.CreateBuilder();
+        // TODO log the kernel calls to a different file
+        // builder.Services.AddSingleton(sp.GetRequiredService<ILoggerFactory>());
         builder.Services.AddSingleton(sp.GetRequiredService<ILogger<VectorSearchPlugin>>());
         builder.Services.AddSingleton(sp.GetRequiredService<ILogger<SQLDatabasePlugin>>());
         builder.Services.AddSingleton(sp.GetRequiredService<ILogger<CodeInterpreterPlugin>>());
         builder.Services.AddSingleton(sp.GetRequiredService<IVectorService>());
         builder.Services.AddSingleton(sp.GetRequiredService<IDbContextFactory<AppDbContext>>());
         builder.AddOpenAIChatCompletion("gpt-5", configuration["OpenAI:ApiKey"]);
+        // // builder.AddGoogleAIGeminiChatCompletion("gemini-2.5-pro", configuration["Gemini:ApiKey"]);
+        // builder.AddOpenAIChatCompletion("gemini-2.5-pro", new Uri("https://generativelanguage.googleapis.com/v1beta/openai/"), configuration["Gemini:ApiKey"]);
         builder.Plugins.AddFromType<VectorSearchPlugin>();
         builder.Plugins.AddFromType<SQLDatabasePlugin>();
         builder.Plugins.AddFromType<CodeInterpreterPlugin>();
@@ -56,7 +61,7 @@ try
     
     services.AddKeyedTransient<Kernel>("BaseKernel", (sp, key) => 
         Kernel.CreateBuilder()
-            .AddOpenAIChatCompletion("gpt-4.1", configuration["OpenAI:ApiKey"])
+            .AddOpenAIChatCompletion("gpt-4.1-nano", configuration["OpenAI:ApiKey"])
             .Build());
  
     

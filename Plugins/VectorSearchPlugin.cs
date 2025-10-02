@@ -9,7 +9,7 @@ namespace ConsoleAIChat.Plugins;
 
 public class VectorSearchPlugin(ILogger<VectorSearchPlugin> logger, IVectorService vectorService)
 {
-    [KernelFunction, Description("Search for relevant documents based on the query Useful for when you need to find relevant documents to answer a question. Always use this function before answering a question. Search in english and again in german if the information isn't there. Don't make up information if you can't find relevant documents. Always search multiple times")]
+    [KernelFunction, Description("Search for relevant documents based on the query Useful for when you need to find relevant documents to answer a question. Always use this function before answering a question. Search in english and again in german if the information isn't there. Don't make up information if you can't find relevant documents. Always search multiple times. Information for which files have been ingested can be found in the sql database")]
     public async Task<string> SearchInVectorDbAsync([Description("The text for which to search for similar chunks in the vectordb")]string query)
     {
         try{

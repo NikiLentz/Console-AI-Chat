@@ -1,8 +1,10 @@
 using System.Text;
+using ConsoleAIChat.Database;
 using ConsoleAIChat.Services.Interfaces;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Presentation;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using UglyToad.PdfPig;
@@ -11,7 +13,7 @@ using UglyToad.PdfPig.DocumentLayoutAnalysis.WordExtractor;
 
 namespace ConsoleAIChat.Services;
 
-public class FileIngestionService(IConfiguration configuration, ILogger<FileIngestionService> logger, IVectorService vectorService):IFileIngestionService
+public class FileIngestionService(IDbContextFactory<AppDbContext> contextFactory, IConfiguration configuration, ILogger<FileIngestionService> logger, IVectorService vectorService):IFileIngestionService
 {
     private readonly string folderPath = configuration["FileIngestion:FolderPath"] ?? 
         throw new ArgumentNullException("FileIngestion:FolderPath configuration is missing");
@@ -20,25 +22,33 @@ public class FileIngestionService(IConfiguration configuration, ILogger<FileInge
 
     public async Task IngestFilesAsync(CancellationToken cancellationToken = default)
     {
+        var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var maxChunkSize = int.Parse(configuration["FileIngestion:MaxChunkSize"] ?? "1000");
         var overlapSize = int.Parse(configuration["FileIngestion:OverlapSize"] ?? "200");
         var filePaths = Directory.GetFiles(folderPath);
         foreach (var path in filePaths)
         {
+            
             var chunks = new List<string>();
             StringBuilder sb = new StringBuilder();
             var file = new FileInfo(path);
-            if(file.Extension == ".pptx" || file.Extension == ".pptx")
+            if (context.VectorDatabaseFiles.Any(f => f.FileName == file.Name))
+            {
+                //logger.LogInformation("File {FilePath} already ingested, skipping.", path);
+                continue;
+            }
+            if(file.Extension == ".ppt" || file.Extension == ".pptx")
             {
                 var numberOfSlides = CountSlides(path);
-                Console.WriteLine($"Number of slides = {numberOfSlides}");
-
+                logger.LogInformation("File {FilePath} has {NumberOfSlides} slides.", path, numberOfSlides);
                 for (var i = 0;  i < numberOfSlides; i++)
                 {
                     var text = GetSlideIdAndText(path, i);
                     sb.AppendLine(text);
                     sb.AppendLine("\n");
+                    logger.LogDebug("Extracted text from slide {SlideIndex}: {Text}", i, text);
                 }
+                chunks = CreateChunksWithOverlap(sb.ToString(), maxChunkSize, overlapSize);
             } 
             else if (file.Extension == ".pdf")
             {
@@ -110,12 +120,7 @@ public class FileIngestionService(IConfiguration configuration, ILogger<FileInge
 
         var paragraphText = new StringBuilder();
 
-        IEnumerable<Text> texts = slide.Slide.Descendants<Text>();
-        foreach (var text in texts)
-        {
-            paragraphText.Append(text.Text);
-        }
-        return paragraphText.ToString();
+        return slide.Slide.InnerText;
     }
     
     private List<String> CreateChunksWithOverlap(string text, int maxChunkSize, int overlapSize)

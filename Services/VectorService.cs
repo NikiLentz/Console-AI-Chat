@@ -1,5 +1,8 @@
+using ConsoleAIChat.Database;
+using ConsoleAIChat.Database.Models;
 using ConsoleAIChat.Services.Interfaces;
 using Jint.Runtime;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
@@ -16,8 +19,9 @@ public class VectorService : IVectorService
     private readonly ILogger<VectorService> _logger;
     private readonly  IEmbeddingGenerator<string,Embedding<float>> _embeddingGenerator;
     private QdrantClient _qdrantClient;
+    private IDbContextFactory<AppDbContext> _contextFactory;
     
-    public VectorService(IConfiguration configuration, ILogger<VectorService> logger)
+    public VectorService(IConfiguration configuration, ILogger<VectorService> logger, IDbContextFactory<AppDbContext> contextFactory)
     {
         _configuration = configuration;
         _logger = logger;
@@ -35,6 +39,7 @@ public class VectorService : IVectorService
         var kernel = kernelBuilder.Build();
         _embeddingGenerator = kernel.GetRequiredService<IEmbeddingGenerator<string, Embedding<float>>>();
         _qdrantClient = new QdrantClient("localhost", port:6334);
+        _contextFactory = contextFactory;
         
     }
 
@@ -86,6 +91,14 @@ public class VectorService : IVectorService
         
             await _qdrantClient.UpsertAsync("my-collection", points, cancellationToken: cancellationToken);
             _logger.LogInformation("Successfully ingested {ChunkCount} chunks from file: {Filename}", chunks.Length, filename);
+            var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
+            context.VectorDatabaseFiles.Add(new VectorDatabaseFile
+            {
+                Id = Guid.NewGuid(),
+                FileName = filename,
+                FilePath = filename
+            });
+            await context.SaveChangesAsync(cancellationToken);
         }
         catch (Exception ex)
         {
@@ -96,7 +109,7 @@ public class VectorService : IVectorService
     public async Task<Content[]> QuerySimilarChunksAsync(
         string queryText, 
         int topK = 50, 
-        float scoreThreshold = 0.1f,
+        float scoreThreshold = 0.7f,
         CancellationToken cancellationToken = default)
     {
         var queryVector = await GenerateDenseVectorAsync(queryText);
