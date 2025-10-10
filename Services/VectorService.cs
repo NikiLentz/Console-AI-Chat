@@ -108,8 +108,8 @@ public class VectorService : IVectorService
     
     public async Task<Content[]> QuerySimilarChunksAsync(
         string queryText, 
-        int topK = 50, 
-        float scoreThreshold = 0.7f,
+        int topK = 5, 
+        float scoreThreshold = 0.8f,
         CancellationToken cancellationToken = default)
     {
         var queryVector = await GenerateDenseVectorAsync(queryText);

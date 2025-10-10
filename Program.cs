@@ -1,5 +1,6 @@
 ﻿// See https://aka.ms/new-console-template for more information
 
+using Anthropic.SDK;
 using ConsoleAIChat.Database;
 using ConsoleAIChat.Plugins;
 using ConsoleAIChat.Services;
@@ -7,6 +8,7 @@ using ConsoleAIChat.Services.Helper;
 using ConsoleAIChat.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Storage;
+using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -42,6 +44,10 @@ try
     services.AddSingleton<TokenCountBasedReducer>();
     services.AddKeyedTransient<Kernel>("ToolKernel", (sp, key) =>
     {
+        var skChatService = new ChatClientBuilder(new AnthropicClient(configuration["Claude:ApiKey"]).Messages)
+            .UseFunctionInvocation()
+            .Build()
+            .AsChatCompletionService();
         var builder = Kernel.CreateBuilder();
         // TODO log the kernel calls to a different file
         // builder.Services.AddSingleton(sp.GetRequiredService<ILoggerFactory>());
@@ -50,12 +56,13 @@ try
         builder.Services.AddSingleton(sp.GetRequiredService<ILogger<CodeInterpreterPlugin>>());
         builder.Services.AddSingleton(sp.GetRequiredService<IVectorService>());
         builder.Services.AddSingleton(sp.GetRequiredService<IDbContextFactory<AppDbContext>>());
-        builder.AddOpenAIChatCompletion("gpt-5", configuration["OpenAI:ApiKey"]);
+        // builder.AddOpenAIChatCompletion("gpt-5", configuration["OpenAI:ApiKey"]);
         // // builder.AddGoogleAIGeminiChatCompletion("gemini-2.5-pro", configuration["Gemini:ApiKey"]);
         // builder.AddOpenAIChatCompletion("gemini-2.5-pro", new Uri("https://generativelanguage.googleapis.com/v1beta/openai/"), configuration["Gemini:ApiKey"]);
         builder.Plugins.AddFromType<VectorSearchPlugin>();
         builder.Plugins.AddFromType<SQLDatabasePlugin>();
         builder.Plugins.AddFromType<CodeInterpreterPlugin>();
+        builder.Services.AddSingleton<IChatCompletionService>(skChatService);
         return builder.Build();
     });
     

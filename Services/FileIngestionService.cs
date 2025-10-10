@@ -101,27 +101,70 @@ public class FileIngestionService(IDbContextFactory<AppDbContext> contextFactory
     }
 
     private static string GetSlideIdAndText(string docName, int index)
+{
+    using var ppt = PresentationDocument.Open(docName, false);
+    var part = ppt.PresentationPart;
+    var slideIds = part?.Presentation?.SlideIdList?.ChildElements ?? default;
+    if (part is null || slideIds.Count == 0)
     {
-        using var ppt = PresentationDocument.Open(docName, false);
-        var part = ppt.PresentationPart;
-        var slideIds = part?.Presentation?.SlideIdList?.ChildElements ?? default;
-        if (part is null || slideIds.Count == 0)
-        {
-            return "";
-        }
-
-        string? relId = ((SlideId)slideIds[index]).RelationshipId;
-
-        if (relId is null)
-        {
-            return "";
-        }
-        var slide = (SlidePart)part.GetPartById(relId);
-
-        var paragraphText = new StringBuilder();
-
-        return slide.Slide.InnerText;
+        return "";
     }
+
+    string? relId = ((SlideId)slideIds[index]).RelationshipId;
+
+    if (relId is null)
+    {
+        return "";
+    }
+    
+    var slide = (SlidePart)part.GetPartById(relId);
+    var result = new StringBuilder();
+
+    // Process all shapes in the slide
+    var shapes = slide.Slide.Descendants<Shape>();
+    foreach (var shape in shapes)
+    {
+        if (shape.TextBody != null)
+        {
+            result.AppendLine(shape.TextBody.InnerText);
+        }
+    }
+
+    // Process all tables - optimized for vector embeddings
+    var tables = slide.Slide.Descendants<DocumentFormat.OpenXml.Drawing.Table>();
+    foreach (var table in tables)
+    {
+        var rows = table.Descendants<DocumentFormat.OpenXml.Drawing.TableRow>().ToList();
+        
+        // Get headers from first row if available
+        if (rows.Count > 0)
+        {
+            var headerCells = rows[0].Descendants<DocumentFormat.OpenXml.Drawing.TableCell>()
+                .Select(cell => cell.InnerText.Trim())
+                .ToArray();
+            
+            // Process data rows
+            for (int i = 1; i < rows.Count; i++)
+            {
+                var dataCells = rows[i].Descendants<DocumentFormat.OpenXml.Drawing.TableCell>()
+                    .Select(cell => cell.InnerText.Trim())
+                    .ToArray();
+                
+                // Create semantic row: "Header1: Value1. Header2: Value2."
+                for (int j = 0; j < Math.Min(headerCells.Length, dataCells.Length); j++)
+                {
+                    if (!string.IsNullOrWhiteSpace(dataCells[j]))
+                    {
+                        result.AppendLine($"{headerCells[j]}: {dataCells[j]}");
+                    }
+                }
+                result.AppendLine(); // Blank line between rows
+            }
+        }
+    }
+
+    return result.ToString();
+}
     
     private List<String> CreateChunksWithOverlap(string text, int maxChunkSize, int overlapSize)
     {

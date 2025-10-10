@@ -1,3 +1,4 @@
+using Anthropic.SDK.Constants;
 using ConsoleAIChat.Database;
 using ConsoleAIChat.Database.Models;
 using ConsoleAIChat.Plugins;
@@ -26,6 +27,15 @@ public class AIChatService :IAIChatService
 
     private readonly OpenAIPromptExecutionSettings _openAIPromptExecutionSettings =
         new() { ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions};
+    
+    private readonly PromptExecutionSettings _promptExecutionSettings = new OpenAIPromptExecutionSettings
+    {
+        ModelId = AnthropicModels.Claude45Sonnet, 
+        MaxTokens = 2048,
+        Temperature = 0.7,
+        FunctionChoiceBehavior = FunctionChoiceBehavior.Auto()
+    };
+
 
     public AIChatService(IDbContextFactory<AppDbContext> contextFactory, 
         IConfiguration configuration, 
@@ -99,7 +109,7 @@ public class AIChatService :IAIChatService
     private async IAsyncEnumerable<string> StreamReasoningCompletionInternalAsync(ChatHistory history, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         await foreach (var update in _reasoningChatCompletionService.GetStreamingChatMessageContentsAsync(history,
-                           executionSettings: _openAIPromptExecutionSettings,
+                           executionSettings: _promptExecutionSettings,
                            kernel: _kernel,
                              cancellationToken: cancellationToken))
         {
